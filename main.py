@@ -65,6 +65,8 @@ def main():
     eval_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
                                   cache_image_features=args.cache_features)
 
+    utils.append_bias(train_dset, eval_dset, len(eval_dset.label2ans))
+
     # Build the model using the original constructor
     constructor = 'build_%s' % args.model
     model, m_model = getattr(base_model, constructor)(train_dset, args.num_hid)
@@ -101,7 +103,7 @@ def main():
     eval_loader = DataLoader(eval_dset, batch_size, shuffle=False, num_workers=0)
 
     print("Starting training...")
-    train(model, m_model, loss_fn, genb, discriminator, train_loader, eval_loader, args,qid2type)
+    train(model, m_model, loss_fn, genb, discriminator, train_loader, eval_loader, args, qid2type)
 
 if __name__ == '__main__':
     main()

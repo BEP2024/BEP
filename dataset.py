@@ -314,8 +314,9 @@ class VQAFeatureDataset(Dataset):
             target_margin.scatter_(0, margin_label, margin_score)
             freq_margin0.scatter_(0, freq_label, per0)
 
-        return features, ques, target, q_id, target_margin, freq_margin0, q_type
+        bias = entry['bias'] if 'bias' in entry else 0
 
+        return features, ques, target, q_id, bias, target_margin, freq_margin0, q_type
     def __len__(self):
         return len(self.entries)
 

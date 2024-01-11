@@ -9,9 +9,9 @@ from tqdm import tqdm
 import time
 import torch.nn.functional as F
 
-Tensor = torch.cuda.FloatTensor
+import utils1.config as config
 
-from utils1.losses import Plain
+Tensor = torch.cuda.FloatTensor
 
 def compute_supcon_loss(feats, qtype):
     tau = 1.0
@@ -59,7 +59,8 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
     num_epochs=args.epochs
     run_eval=args.eval_each_epoch
     output=args.output
-    optim = torch.optim.Adamax(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
+    optim = torch.optim.Adamax([{'params':filter(lambda p: p.requires_grad, model.parameters())},{'params': m_model.parameters()}], lr=0.001)
+
     optim_G = torch.optim.Adamax(filter(lambda p: p.requires_grad, genb.parameters()), lr=0.001)
     optim_D = torch.optim.Adamax(filter(lambda p: p.requires_grad, discriminator.parameters()), lr=0.001)
     logger = utils.Logger(os.path.join(output, 'log.txt'))
@@ -77,7 +78,7 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
         train_score = 0
 
         t = time.time()
-        for i, (v, q, a, qid, mg, f1, type) in tqdm(enumerate(train_loader), ncols=100, desc="Epoch %d" % (epoch + 1), total=len(train_loader)):
+        for i, (v, q, a, qid, bias, mg, f1, type) in tqdm(enumerate(train_loader), ncols=100, desc="Epoch %d" % (epoch + 1), total=len(train_loader)):
             total_step += 1
 
             #########################################
@@ -89,13 +90,16 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
 
             mg = mg.cuda()
             f1 = f1.cuda()
+            bias = bias.cuda()
             gt = torch.argmax(a, 1)
+
             #########################################
 
             # get model output
             optim.zero_grad()
             hidden_, pred = model(v, q)
             hidden, pred1 = m_model(hidden_, pred, mg, epoch, a)
+            dict_args = {'margin': mg, 'bias': bias, 'hidden': hidden, 'epoch': epoch, 'per': f1}
 
             # train genb
             optim_G.zero_grad()
@@ -128,7 +132,6 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
             genb.train(False)
             pred_g = genb(v, q, gen=False)
 
-            dict_args = {'margin': mg, 'bias': pred_g, 'hidden': hidden, 'epoch': epoch, 'per': f1}
 
             ce_loss = -F.log_softmax(pred, dim=-1) * a
             ce_loss = ce_loss * f1
@@ -147,6 +150,11 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
 
             genb.train(True)
             total_loss += genb_loss.item() * q.size(0)
+
+            ce_logits = F.normalize(pred)
+            pred_l = F.normalize(pred1)
+            pred = (ce_logits + pred_l) / 2
+
             batch_score = compute_score_with_logits(pred, a.data).sum()
             train_score += batch_score
 
@@ -159,7 +167,7 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
 
         if run_eval:
             model.train(False)
-            results = evaluate(model, eval_loader, qid2type)
+            results = evaluate(model, m_model, eval_loader, qid2type)
             results["epoch"] = epoch
             results["step"] = total_step
             results["train_loss"] = total_loss
@@ -188,7 +196,7 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
     print('best eval score: %.2f' % (best_eval_score*100))
 
 
-def evaluate(model, dataloader, qid2type):
+def evaluate(model, m_model, dataloader, qid2type):
     score = 0
     upper_bound = 0
     score_yesno = 0
@@ -198,10 +206,17 @@ def evaluate(model, dataloader, qid2type):
     total_number = 0
     total_other = 0 
 
-    for v, q, a, qids, mg, f1, type in tqdm(dataloader, ncols=100, total=len(dataloader), desc="eval"):
+    for v, q, a, qids, bias, mg, f1, type in tqdm(dataloader, ncols=100, total=len(dataloader), desc="eval"):
         v = Variable(v, requires_grad=False).cuda()
         q = Variable(q, requires_grad=False).cuda()
-        pred = model(v, q)
+        mg = mg.cuda()
+        hidden_, pred = model(v, q)
+        hidden, pred_m = m_model(hidden_, pred, mg, 0,  a)
+
+        pred = F.softmax(F.normalize(pred) / config.temp, 1)
+        pred_m = F.softmax(F.normalize(pred_m), 1)
+        pred = config.alpha * pred_m + (1 - config.alpha) * pred
+
         batch_score = compute_score_with_logits(pred, a.cuda()).cpu().numpy().sum(1)
         score += batch_score.sum()
         upper_bound += (a.max(1)[0]).sum()

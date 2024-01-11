@@ -11,6 +11,8 @@ import base64
 import time
 import sys
 
+from collections import defaultdict, Counter
+
 EPS = 1e-7
 
 
@@ -137,3 +139,34 @@ def load_obj_tsv(fname, topk=None):
 
 def json_keys2int(x):
     return {int(k): v for k, v in x.items()}
+
+def append_bias(train_dset, eval_dset, answer_voc_size):
+    """
+        Compute the bias:
+        The bias here is just the expected score for each answer/question type
+    """
+    # question_type -> answer -> total score
+    question_type_to_probs = defaultdict(Counter)
+    # question_type -> num_occurances
+    question_type_to_count = Counter()
+    for ex in train_dset.entries:
+        ans = ex["answer"]
+        q_type = ans["question_type"]
+        question_type_to_count[q_type] += 1
+        if ans["labels"] is not None:
+            for label, score in zip(ans["labels"], ans["scores"]):
+                question_type_to_probs[q_type][label] += score
+
+    question_type_to_prob_array = {}
+    for q_type, count in question_type_to_count.items():
+        prob_array = np.zeros(answer_voc_size, np.float32)
+        for label, total_score in question_type_to_probs[q_type].items():
+            prob_array[label] += total_score
+        prob_array /= count
+        question_type_to_prob_array[q_type] = prob_array
+
+    # Now add a `bias` field to each example
+    for ds in [train_dset, eval_dset]:
+        for ex in ds.entries:
+            q_type = ex["answer"]["question_type"]
+            ex["bias"] = question_type_to_prob_array[q_type]
