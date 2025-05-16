@@ -54,7 +54,7 @@ def calc_genb_loss(logits, bias, labels):
     return loss
 
 
-def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader,args,qid2type):
+def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader, ce_loader, easy_loader, args, qid2type):
     torch.autograd.set_detect_anomaly(True)
     num_epochs=args.epochs
     run_eval=args.eval_each_epoch
@@ -176,17 +176,22 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
             model.train(True)
 
             eval_score = results["score"]
-            bound = results["upper_bound"]
-            yn = results['score_yesno']
-            other = results['score_other']
-            num = results['score_number']
-            logger.write('\teval score: %.2f (%.2f)' % (100 * eval_score, 100 * bound))
-            logger.write('\tyn score: %.2f other score: %.2f num score: %.2f' % (100 * yn, 100 * other, 100 * num))
+            ce__score = results["ce_score"]
+            easy_score = results["easy_score"]
+            # bound = results["upper_bound"]
+            # yn = results['score_yesno']
+            # other = results['score_other']
+            # num = results['score_number']
+            # logger.write('\teval score: %.2f (%.2f)' % (100 * eval_score, 100 * bound))
+            # logger.write('\tyn score: %.2f other score: %.2f num score: %.2f' % (100 * yn, 100 * other, 100 * num))
+            logger.write('\toverall score: %.2f ce score: %.2f easy score: %.2f' % (100 * eval_score, 100 * ce__score, 100 * easy_score))
             main_eval_score = eval_score
 
             if main_eval_score > best_eval_score:
                 model_path = os.path.join(output, 'model.pth')
+                m_model_path = os.path.join(output, 'm_model.pth')
                 genb_path = os.path.join(output, 'genb.pth')
+                torch.save(m_model.state_dict(), m_model_path)
                 torch.save(model.state_dict(), model_path)
                 torch.save(genb.state_dict(), genb_path)
                 best_eval_score = main_eval_score
@@ -196,8 +201,10 @@ def train(model, m_model,loss_fn, genb, discriminator, train_loader, eval_loader
     print('best eval score: %.2f' % (best_eval_score*100))
 
 
-def evaluate(model, m_model, dataloader, qid2type):
+def evaluate(model, m_model, dataloader, ce_loader, easy_loader, qid2type):
     score = 0
+    ce_score = 0
+    easy_score = 0
     upper_bound = 0
     score_yesno = 0
     score_number = 0
@@ -235,8 +242,36 @@ def evaluate(model, m_model, dataloader, qid2type):
                 total_number += 1
             else:
                 print('Hahahahahahahahahahaha')
+    for v, q, a, qids, bias, mg, f1, type in tqdm(ce_loader, ncols=100, total=len(dataloader), desc="eval"):
+        v = Variable(v, requires_grad=False).cuda()
+        q = Variable(q, requires_grad=False).cuda()
+        mg = mg.cuda()
+        hidden_, pred = model(v, q)
+        hidden, pred_m = m_model(hidden_, pred, mg, 0,  a)
+
+        pred = F.softmax(F.normalize(pred) / config.temp, 1)
+        pred_m = F.softmax(F.normalize(pred_m), 1)
+        pred = config.alpha * pred_m + (1 - config.alpha) * pred
+
+        batch_score = compute_score_with_logits(pred, a.cuda()).cpu().numpy().sum(1)
+        ce_score += batch_score.sum()
+    for v, q, a, qids, bias, mg, f1, type in tqdm(easy_loader, ncols=100, total=len(dataloader), desc="eval"):
+        v = Variable(v, requires_grad=False).cuda()
+        q = Variable(q, requires_grad=False).cuda()
+        mg = mg.cuda()
+        hidden_, pred = model(v, q)
+        hidden, pred_m = m_model(hidden_, pred, mg, 0,  a)
+
+        pred = F.softmax(F.normalize(pred) / config.temp, 1)
+        pred_m = F.softmax(F.normalize(pred_m), 1)
+        pred = config.alpha * pred_m + (1 - config.alpha) * pred
+
+        batch_score = compute_score_with_logits(pred, a.cuda()).cpu().numpy().sum(1)
+        easy_score += batch_score.sum()
 
     score = score / len(dataloader.dataset)
+    ce_score = ce_score / len(ce_loader.dataset)
+    easy_score = easy_score / len(easy_loader.dataset)
     upper_bound = upper_bound / len(dataloader.dataset)
     score_yesno /= total_yesno
     score_other /= total_other
@@ -244,6 +279,8 @@ def evaluate(model, m_model, dataloader, qid2type):
 
     results = dict(
         score=score,
+        ce_score=ce_score,
+        easy_score=easy_score,
         upper_bound=upper_bound,
         score_yesno=score_yesno,
         score_other=score_other,

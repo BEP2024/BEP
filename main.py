@@ -24,12 +24,12 @@ def parse_args():
                         "especially if the filesystem is slow, but requires at least 48gb of RAM")
     parser.add_argument('--dataset', default='cpv2', choices=["v2", "cpv2", "cpv1"], help="Run on VQA-2.0 instead of VQA-CP 2.0")
     parser.add_argument('--eval_each_epoch', default=True,help="Evaluate every epoch, instead of at the end")
-    parser.add_argument('--epochs', type=int, default=25)
+    parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--num_hid', type=int, default=1024)
     parser.add_argument('--model', type=str, default='baseline0_newatt')
     parser.add_argument('--output', type=str, default='logs/nvidiaexp0')
-    parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--seed', type=int, default=1111, help='random seed')
+    parser.add_argument('--batch_size', type=int, default=512)
+    parser.add_argument('--seed', type=int, default=114514, help='random seed')
     parser.add_argument('--load_checkpoint_path', type=str, default=None)
     args = parser.parse_args()
     return args
@@ -64,6 +64,11 @@ def main():
     print("Building test dataset...")
     eval_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
                                   cache_image_features=args.cache_features)
+
+    ce_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
+                                  cache_image_features=args.cache_features, ce='ce')
+    easy_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
+                                  cache_image_features=args.cache_features, ce='easy')
 
     utils.append_bias(train_dset, eval_dset, len(eval_dset.label2ans))
 
@@ -102,8 +107,11 @@ def main():
     train_loader = DataLoader(train_dset, batch_size, shuffle=True, num_workers=0)
     eval_loader = DataLoader(eval_dset, batch_size, shuffle=False, num_workers=0)
 
+    ce_loader = DataLoader(ce_dset, batch_size, shuffle=False, num_workers=0)
+    easy_loader = DataLoader(easy_dset, batch_size, shuffle=False, num_workers=0)
+
     print("Starting training...")
-    train(model, m_model, loss_fn, genb, discriminator, train_loader, eval_loader, args, qid2type)
+    train(model, m_model, loss_fn, genb, discriminator, train_loader, eval_loader, ce_loader, easy_loader, args, qid2type)
 
 if __name__ == '__main__':
     main()

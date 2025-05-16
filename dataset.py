@@ -162,7 +162,7 @@ def _load_margin(cache_path, name, entries):
 
 class VQAFeatureDataset(Dataset):
     def __init__(self, name, dictionary, dataroot='data', dataset='cpv2',
-                 use_hdf5=True, cache_image_features=False):
+                 use_hdf5=True, cache_image_features=False, ce=None):
         super(VQAFeatureDataset, self).__init__()
         self.name=name
 
@@ -229,6 +229,25 @@ class VQAFeatureDataset(Dataset):
         self.tensorize()
 
         self.v_dim = 2048
+
+        if ce is not None:
+            if ce == 'ce':
+                with open('./data/CE/counterexamples.json') as f:
+                    ce = json.load(f)
+                self.entries = [entry for entry in self.entries if entry['question_id'] in ce]
+                print(len(ce))
+                print(len(self.entries))
+            if ce == 'easy':
+                with open('./data/CE/counterexamples.json') as f:
+                    ce = json.load(f)
+                with open('./data/CE/hard.json') as f:
+                    hard = json.load(f)
+                print(len(self.entries))
+                self.entries = [entry for entry in self.entries if
+                                entry['question_id'] not in ce and entry['question_id'] not in hard]
+                print(len(ce))
+                print(len(hard))
+                print(len(self.entries))
 
     def tokenize(self, max_length=14):
         """Tokenizes the questions.
