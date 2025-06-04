@@ -9,11 +9,12 @@ from dataset import Dictionary, VQAFeatureDataset
 import base_model
 from base_model import GenB, Discriminator
 
-from train import train
+from train import train, train_gqa
 import utils
 import click
 
 from utils1.losses import Plain
+from gqa_data import GQADataset, GQATorchDataset
 
 
 def parse_args():
@@ -22,7 +23,7 @@ def parse_args():
     # Arguments we added
     parser.add_argument('--cache_features', default=False, help="Cache image features in RAM. Makes things much faster"
                         "especially if the filesystem is slow, but requires at least 48gb of RAM")
-    parser.add_argument('--dataset', default='cpv2', choices=["v2", "cpv2", "cpv1"], help="Run on VQA-2.0 instead of VQA-CP 2.0")
+    parser.add_argument('--dataset', default='cpv2', choices=["v2", "cpv2", "cpv1", "gqa"], help="Run on VQA-2.0 instead of VQA-CP 2.0")
     parser.add_argument('--eval_each_epoch', default=True,help="Evaluate every epoch, instead of at the end")
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--num_hid', type=int, default=1024)
@@ -56,21 +57,25 @@ def main():
         dictionary = Dictionary.load_from_file('data/dictionary_v1.pkl')
     elif dataset=='cpv2' or dataset=='v2':
         dictionary = Dictionary.load_from_file('data/dictionary.pkl')
+    elif dataset=='gqa':
+        dictionary = Dictionary.load_from_file('data/gqa/dictionary.pkl')
 
-    print("Building train dataset...")
-    train_dset = VQAFeatureDataset('train', dictionary, dataset=dataset,
-                                   cache_image_features=args.cache_features)
+    if dataset=='gqa':
+        train_dataset = GQADataset('train')
+        train_dset = GQATorchDataset(train_dataset, dictionary)
 
-    print("Building test dataset...")
-    eval_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
-                                  cache_image_features=args.cache_features)
+        eval_dataset = GQADataset('val')
+        eval_dset = GQATorchDataset(eval_dataset, dictionary)
+    else:
+        print("Building train dataset...")
+        train_dset = VQAFeatureDataset('train', dictionary, dataset=dataset,
+                                    cache_image_features=args.cache_features)
 
-    ce_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
-                                  cache_image_features=args.cache_features, ce='ce')
-    easy_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
-                                  cache_image_features=args.cache_features, ce='easy')
+        print("Building test dataset...")
+        eval_dset = VQAFeatureDataset('val', dictionary, dataset=dataset,
+                                    cache_image_features=args.cache_features)
 
-    utils.append_bias(train_dset, eval_dset, len(eval_dset.label2ans))
+        utils.append_bias(train_dset, eval_dset, len(eval_dset.label2ans))
 
     # Build the model using the original constructor
     constructor = 'build_%s' % args.model
@@ -83,12 +88,18 @@ def main():
     if dataset=='cpv1':
         model.w_emb.init_embedding('data/glove6b_init_300d_v1.npy')
         genb.w_emb.init_embedding('data/glove6b_init_300d_v1.npy')
+        with open('util/qid2type_%s.json'%args.dataset,'r') as f:
+            qid2type=json.load(f)
     elif dataset=='cpv2' or dataset=='v2':
         model.w_emb.init_embedding('data/glove6b_init_300d.npy')
         genb.w_emb.init_embedding('data/glove6b_init_300d.npy')
-
-    with open('util/qid2type_%s.json'%args.dataset,'r') as f:
-        qid2type=json.load(f)
+        with open('util/qid2type_%s.json'%args.dataset,'r') as f:
+            qid2type=json.load(f)
+    elif dataset=='gqa':
+        model.w_emb.init_embedding('data/gqa/glove6b_init_300d.npy')
+        genb.w_emb.init_embedding('data/gqa/glove6b_init_300d.npy')
+        with open('util/qid2type_v2.json','r') as f:
+            qid2type=json.load(f)
 
     if args.load_checkpoint_path is not None:
         ckpt = torch.load(os.path.join('logs', args.load_checkpoint_path, 'model.pth'))
@@ -107,11 +118,10 @@ def main():
     train_loader = DataLoader(train_dset, batch_size, shuffle=True, num_workers=0)
     eval_loader = DataLoader(eval_dset, batch_size, shuffle=False, num_workers=0)
 
-    ce_loader = DataLoader(ce_dset, batch_size, shuffle=False, num_workers=0)
-    easy_loader = DataLoader(easy_dset, batch_size, shuffle=False, num_workers=0)
-
     print("Starting training...")
-    train(model, m_model, loss_fn, genb, discriminator, train_loader, eval_loader, ce_loader, easy_loader, args, qid2type)
-
+    if dataset=='gqa':
+        train_gqa(model, m_model, loss_fn, genb, discriminator, train_loader, eval_loader, args, qid2type)
+    else:
+        train(model, m_model, loss_fn, genb, discriminator, train_loader, eval_loader, args, qid2type)
 if __name__ == '__main__':
     main()

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
 from attention import Attention, NewAttention
@@ -12,6 +13,7 @@ import torch.nn.init as init
 
 import math
 
+
 def kaiming_init(m):
     if isinstance(m, (nn.Linear, nn.Conv2d)):
         # init.kaiming_normal(m.weight)
@@ -22,6 +24,7 @@ def kaiming_init(m):
         m.weight.data.fill_(1)
         if m.bias is not None:
             m.bias.data.fill_(0)
+
 
 def normal_init(m, mean, std):
     if isinstance(m, (nn.Linear, nn.Conv2d)):
@@ -57,11 +60,12 @@ class BaseModel(nn.Module):
         att = self.v_att(v, q_emb)
 
         att = nn.functional.softmax(att, 1)
-        v_emb = (att * v).sum(1)  # [batch, v_dim]      
+        self.last_attention_weights = att
+        v_emb = (att * v).sum(1)  # [batch, v_dim]
 
         q_repr = self.q_net(q_emb)
         v_repr = self.v_net(v_emb)
-        
+
         joint_repr = v_repr * q_repr
         logits = self.classifier(joint_repr)
 
@@ -85,13 +89,14 @@ class GenB(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
+
         self.generate = nn.Sequential(
-            *block(num_hid//8, num_hid//4),
-            *block(num_hid//4, num_hid//2),
-            *block(num_hid//2, num_hid),
-            nn.Linear(num_hid, num_hid*2),
+            *block(num_hid // 8, num_hid // 4),
+            *block(num_hid // 4, num_hid // 2),
+            *block(num_hid // 2, num_hid),
+            nn.Linear(num_hid, num_hid * 2),
             nn.ReLU(inplace=True)
-            )
+        )
         self.weight_init()
 
     def weight_init(self):
@@ -109,9 +114,9 @@ class GenB(nn.Module):
         b, c, f = v.shape
 
         # generate from noise
-        if gen==True:
-            v_z = Variable(torch.cuda.FloatTensor(np.random.normal(0,1, (b,c, 128))))
-            v = self.generate(v_z.view(-1, 128)).view(b,c,f)
+        if gen == True:
+            v_z = Variable(torch.cuda.FloatTensor(np.random.normal(0, 1, (b, c, 128))))
+            v = self.generate(v_z.view(-1, 128)).view(b, c, f)
 
         att = self.v_att(v, q_emb)
 
@@ -134,13 +139,13 @@ class Discriminator(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(dataset.num_ans_candidates, 1024),
             nn.ReLU(True),
-            nn.Linear(num_hid, num_hid//2),
+            nn.Linear(num_hid, num_hid // 2),
             nn.ReLU(True),
-            nn.Linear(num_hid//2, num_hid//4),
+            nn.Linear(num_hid // 2, num_hid // 4),
             nn.ReLU(True),
-            nn.Linear(num_hid//4, 1),
+            nn.Linear(num_hid // 4, 1),
             nn.Sigmoid(),
-            )
+        )
         self.weight_init()
 
     def weight_init(self):
@@ -213,6 +218,7 @@ class ArcMarginProduct(nn.Module):
             phi = torch.where(cosine > self.th, phi, cosine - self.mm)
 
         output = phi * self.s
+
         return output, cosine
 
 
@@ -225,6 +231,7 @@ def build_baseline0(dataset, num_hid):
     classifier = SimpleClassifier(
         num_hid, 2 * num_hid, dataset.num_ans_candidates, 0.5)
     return BaseModel(w_emb, q_emb, v_att, q_net, v_net, classifier)
+
 
 def build_baseline0_newatt(dataset, num_hid):
     w_emb = WordEmbedding(dataset.dictionary.ntoken, 300, 0.0)

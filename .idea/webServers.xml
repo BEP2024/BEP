@@ -3,9 +3,16 @@
   <component name="WebServers">
     <option name="servers">
       <webServer id="90438e93-1ea8-41f5-8db0-6174fef7d720" name="genb">
-        <fileTransfer rootFolder="/home/hbq" accessType="SFTP" host="172.18.92.187" port="22" sshConfigId="31e88157-d923-4b92-96f1-6a08d19d54ff" sshConfig="hbq@172.18.92.187:22 password">
+        <fileTransfer rootFolder="/home/hbq" accessType="SFTP" host="172.18.92.180" port="22" sshConfigId="31e88157-d923-4b92-96f1-6a08d19d54ff" sshConfig="hbq@172.18.92.180:22 password">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="892e4ad9-86d2-42fa-a2f8-250af5a0ecdd" name="3090">
+        <fileTransfer rootFolder="/home/hbq" accessType="SFTP" host="172.26.19.138" port="22" sshConfigId="81d90cb7-c06d-4e36-a877-58a8ef889e62" sshConfig="hbq@172.26.19.138:22 password">
+          <advancedOptions>
+            <advancedOptions keepAliveTimeout="0" />
           </advancedOptions>
         </fileTransfer>
       </webServer>
